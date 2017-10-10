@@ -1,0 +1,381 @@
+---
+title: "Global Terrorism Database (1970 - 2015) Descriptive Data Visualization"
+date: '2017-06-09'
+output: 
+  md_document:
+    variant: markdown_github
+tags:
+- R-programming
+- EDA
+categories: Project
+---
+
+```{r finish previous steps, message=FALSE, warning=FALSE, include=FALSE}
+# Load packages
+library(dplyr)
+library(stringr)
+library(lubridate)
+library(ggplot2)
+library(ggmap)
+library(purrr)
+library(purrrlyr)
+library(tidyverse)
+library(reshape2)
+library(caret) # For data partition
+library(plotly) # For interactive mapping and visuals
+library(leaflet)
+library(cowplot)
+library(ggthemes)
+library(viridis)
+library(knitr)
+library(scales)
+library(gridExtra)
+library(MASS)
+library(ggmap)
+library(forcats)
+library(tm)
+library(wordcloud)
+library(RColorBrewer)
+db <- read.csv("globalterrorismdb_0616dist.csv", na.string = c("", "NA", " "))
+dt <- db %>%
+  dplyr::select(eventid, iyear, imonth, iday, extended, summary, doubtterr, multiple, related, country_txt, region_txt, provstate, latitude, longitude, attacktype1_txt, attacktype2_txt, attacktype3_txt, success, suicide, weaptype1_txt, weaptype2_txt, weaptype3_txt, weaptype4_txt, target1, targtype1_txt, natlty1_txt, target2, targtype2_txt, natlty2_txt, target3, targtype3_txt,natlty3_txt, gname, gname2, gname3, guncertain1, guncertain2, guncertain3, nperps, nperpcap, claimed, compclaim, motive, nkill, nkillter, nwound, nwoundte, property, propextent, ishostkid, nhostkid, INT_LOG, INT_IDEO, INT_MISC, INT_ANY) %>% 
+  filter(doubtterr == 0, country_txt == "United States")
+dt_w <- db %>%
+  dplyr::select(eventid, iyear, imonth, iday, extended, summary, doubtterr, multiple, related, country_txt, region_txt, provstate, latitude, longitude, attacktype1_txt, attacktype2_txt, attacktype3_txt, success, suicide, weaptype1_txt, weaptype2_txt, weaptype3_txt, weaptype4_txt, target1, targtype1_txt, natlty1_txt, target2, targtype2_txt, natlty2_txt, target3, targtype3_txt,natlty3_txt, gname, gname2, gname3, guncertain1, guncertain2, guncertain3, nperps, nperpcap, claimed, compclaim, motive, nkill, nkillter, nwound, nwoundte, property, propextent, ishostkid, nhostkid, INT_LOG, INT_IDEO, INT_MISC, INT_ANY) %>% 
+  filter(doubtterr == 0) # 217 is the country code for United States
+
+# Change variables with strings back to character vector
+dt$summary <- as.character(dt$summary)
+dt$target1 <- as.character(dt$target1)
+dt$target2 <- as.character(dt$target2)
+dt$target3 <- as.character(dt$target3)
+
+# Trim factor variables to only have included levels
+dt <- dt %>% dmap_if(is.factor, fct_drop)
+
+# Recode -9 and -99 as NA in the dataframe
+dt[dt == -9 | dt == -99] <- NA
+
+# Recode factors "." and "Unknown" into NA in the factors
+for (i in 1:ncol(dt)){
+  if (is.factor(dt[,i])){
+     levels(dt[,i]) <- sub("^.$", NA, levels(dt[,i]))
+     levels(dt[,i]) <- sub("Unknown", NA, levels(dt[,i]))
+  }
+}
+
+# Run the same codes on the world reference dataframe
+# Change variables with strings back to character vector
+dt_w$summary <- as.character(dt_w$summary)
+dt_w$target1 <- as.character(dt_w$target1)
+dt_w$target2 <- as.character(dt_w$target2)
+dt_w$target3 <- as.character(dt_w$target3)
+# Trim factor variables to only have included levels
+dt_w <- dt_w %>% dmap_if(is.factor, fct_drop)
+# Recode -9 and -99 as NA in the dataframe
+dt_w[dt_w == -9 | dt_w == -99] <- NA
+# Recode factors "." and "Unknown" into NA in the factors
+for (i in 1:ncol(dt_w)){
+  if (is.factor(dt_w[,i])){
+     levels(dt_w[,i]) <- sub("^.$", NA, levels(dt_w[,i]))
+     levels(dt_w[,i]) <- sub("Unknown", NA, levels(dt_w[,i]))
+  }
+}
+
+# Replace unknown days (0 according to the code book) with 1
+dt$iday <- as.integer(gsub(0, 1, dt$iday))
+
+# Create a new variable "idate"
+dt$idate <- as.Date(paste0(dt$iyear,
+                       stringr::str_pad(as.character(dt$imonth), width = 2, side = "left", pad = "0"),
+                       stringr::str_pad(as.character(dt$iday), width = 2, side = "left", pad = "0")), "%Y%m%d")
+# There are 23 incidents where the date object fails to show
+# a closer look finds that these are incidents where iday = 31
+# when the month actually won't have 31 days.
+# We will treat these idays as 30, i.e. end of the month
+dt$iday[is.na(dt$idate)] <- 30
+dt$idate <- as.Date(paste0(dt$iyear,
+                       stringr::str_pad(as.character(dt$imonth), width = 2, side = "left", pad = "0"),
+                       stringr::str_pad(as.character(dt$iday), width = 2, side = "left", pad = "0")), "%Y%m%d")
+
+# Repeat Same Step for the World Refernce Dataframe
+# Replace unknown days (0 according to the code book) with 1
+dt_w$iday <- as.integer(gsub(0, 1, dt_w$iday))
+
+# Create a new variable "idate"
+dt_w$idate <- as.Date(paste0(dt_w$iyear,
+                       stringr::str_pad(as.character(dt_w$imonth), width = 2, side = "left", pad = "0"),
+                       stringr::str_pad(as.character(dt_w$iday), width = 2, side = "left", pad = "0")), "%Y%m%d")
+# There are 23 incidents where the date object fails to show
+# a closer look finds that these are incidents where iday = 31
+# when the month actually won't have 31 days.
+# We will treat these idays as 30, i.e. end of the month
+dt_w$iday[is.na(dt_w$idate)] <- 30
+dt_w$idate <- as.Date(paste0(dt_w$iyear,
+                       stringr::str_pad(as.character(dt_w$imonth), width = 2, side = "left", pad = "0"),
+                       stringr::str_pad(as.character(dt_w$iday), width = 2, side = "left", pad = "0")), "%Y%m%d")
+
+```
+
+This post is the second of my three posts on the explorative data anlysis project on Global Terrorism Database (GTD). For more information regarding the details of GTD or the project in general, please check out my previous post [Global Terrorism Database (1970 - 2015) Preliminary Data Cleaning](/_posts/2017-05-30-gtd-data-cleaning.md). 
+
+# Understand Terror Attacks in the U.S.
+
+Now that I have cleaned and preprocessed the dataframe for the analysis, I will get my feet wet with a glimpse of the trend of attacks in the U.S.. I start by looking at the terror attacks across time and geolocations. 
+
+## Question 1: How Have The Attacks In the U.S. Changed over Time?
+
+To answer this question, I can check out how many incidents happened in the U.S. for each year, ever since 1970:
+
+```{r count-by-year, fig.width=6, fig.height=2.5}
+g1 <-  dt %>% dplyr::group_by(iyear) %>%
+  summarise(n_incident = n()) %>%
+  ggplot(aes(iyear, n_incident)) + geom_line() + xlab("") + ylab("Attack Count") + theme_light() +
+  ggtitle("Count of U.S. Terror Attacks Over Years")
+g1
+```
+
+Above chart indicates that the number of terror attacks in the U.S. is decreasing since 1970; however, this might contradict with people's recent memory since "9.11" was one of the biggest terror attacks on U.S. history. Therefore, we should instead use measurements that refelct the impact of the attacks, such as number of victims killed (***nkill***) or injured (***nwound***), to understand the scopes of the attacks.
+
+```{r nkill-by-year, fig.width=6, fig.height=2.5}
+# Compare the attacks, kills, and wounds over years
+g2 <-  dt %>% dplyr::group_by(iyear) %>% summarise(killed = sum(nkill, na.rm=TRUE), injured = sum(nwound, na.rm=TRUE), count = n()) %>%
+  melt(id.vars="iyear", measure.vars=c('killed','injured','count')) %>%
+  ggplot(aes(iyear, value, group = variable, color=variable)) +
+  geom_line() + xlab("") + ylab("Count") + theme_light() + ggtitle("U.S. Terror Attack Impact Over Years")
+g2
+```
+With the killed and injured considered, I now draw a better picture of the scope of the terror attacks in the U.S.. Apparently the biggest terror attack ever since 1970 in no doubt happened in 2001, i.e. the "9.11" attack. We are also seeing three spikes in number of injured victims (injured) in 1984, 1995, and 2013. To get a better understanding of what these attacks are, we can rank the terror attacks in terms of the impact and check out their details:
+```{r biggest-attacks}
+t1 <- (dt %>% mutate(nkill = ifelse(is.na(nkill), 0, nkill),
+                     nwound = ifelse(is.na(nwound), 0, nwound),
+                     n_killwound = nkill + nwound) %>% arrange(desc(n_killwound)) %>%
+         dplyr::select(nkill, nwound, idate, provstate, gname, summary))
+```
+
+Date | State | Killed | Injured | Terror Group
+-----|-------|--------|---------|--------------
+`r t1[1, 3]` | `r t1[1, 4]` | `r t1[1, 1]` | `r t1[1, 2]` | `r t1[1, 5]`
+`r t1[2, 3]` | `r t1[2, 4]` | `r t1[2, 1]` | `r t1[2, 2]` | `r t1[2, 5]`
+`r t1[3, 3]` | `r t1[3, 4]` | `r t1[3, 1]` | `r t1[3, 2]` | `r t1[3, 5]`
+`r t1[4, 3]` | `r t1[4, 4]` | `r t1[4, 1]` | `r t1[4, 2]` | `r t1[4, 5]`
+`r t1[5, 3]` | `r t1[5, 4]` | `r t1[5, 1]` | `r t1[5, 2]` | `r t1[5, 5]`
+`r t1[6, 3]` | `r t1[6, 4]` | `r t1[6, 1]` | `r t1[6, 2]` | `r t1[6, 5]`
+`r t1[7, 3]` | `r t1[7, 4]` | `r t1[7, 1]` | `r t1[7, 2]` | `r t1[7, 5]`
+
+The above chart corresponds with our analysis from the chart. The biggest attacks in the U.S. includes not only the "9.11" series, but also attacks conducted by Rajneeshees and unaffiliated individuals in 1995, 1984, and 2013.
+
+## Question 2: What are the Worldwide Attack Trend Compared to the U.S.?
+
+For reference purposes, I also checked the incident occurance around the world. Interestingly enough, the count of terror attacks around the world are increasing in recent years, and even reached the exponential point after 2000. It seems that the year of 2001 ("9.11") is not only a landmark for the attacks in the U.S., but also for those around the world. Moreover, it is noted that the terror attacks happening in the U.S. dwarf in front of the worldwide attacks: apparently there are places in the world that needs even more help in coping these attacks.
+
+```{r count-by-year-world, fig.width=6, fig.height=2.5}
+# Display the attack count of the world over years
+g1_w <-  dt_w %>% dplyr::group_by(iyear) %>% summarise(n_incident = n()) %>%
+  ggplot(aes(iyear, n_incident)) + geom_line() + xlab("") + ylab("Attack Count") + theme_light() +
+  ggtitle("World Terror Attacks Over Years")
+g1_w
+```
+
+I also created a graph of killed, injured, and attack count for incidents around the world:
+```{r nkill-by-year-world, fig.width=6, fig.height=2.5}
+# Compare the attacks and casualties of the world over years
+g2_w <-  dt_w %>% dplyr::group_by(iyear) %>% summarise(killed = sum(nkill, na.rm=TRUE), injured = sum(nwound, na.rm=TRUE), count = n()) %>%
+  melt(id.vars="iyear", measure.vars=c('killed','injured','count')) %>%
+  ggplot(aes(iyear, value, group = variable, color=variable)) + geom_line() + xlab("") + ylab("Count") +
+  theme_light() + ggtitle("World Terror Attack Impact Over Years")
+g2_w
+```
+Contrary to the U.S., terror attacks around the world not only claim more occurence in recent decades, but also more death and injuries. What are the biggest single attaacks around the world then?
+
+```{r biggest-attacks-world}
+# Identify the biggest attacks in the world in terms of casualties
+t1_w <- (dt_w %>% mutate(nkill = ifelse(is.na(nkill), 0, nkill),
+                     nwound = ifelse(is.na(nwound), 0, nwound),
+                     n_killwound = nkill + nwound) %>% arrange(desc(n_killwound)) %>%
+         dplyr::select(nkill, nwound, idate, country_txt, gname, summary))
+```
+
+Date | State | Killed | Injured | Terror Group
+-----|-------|--------|---------|--------------
+`r t1_w[1, 3]` | `r t1_w[1, 4]` | `r t1_w[1, 1]` | `r t1_w[1, 2]` | `r t1_w[1, 5]`
+`r t1_w[2, 3]` | `r t1_w[2, 4]` | `r t1_w[2, 1]` | `r t1_w[2, 2]` | `r t1_w[2, 5]`
+`r t1_w[3, 3]` | `r t1_w[3, 4]` | `r t1_w[3, 1]` | `r t1_w[3, 2]` | `r t1_w[3, 5]`
+`r t1_w[4, 3]` | `r t1_w[4, 4]` | `r t1_w[4, 1]` | `r t1_w[4, 2]` | `r t1_w[4, 5]`
+`r t1_w[5, 3]` | `r t1_w[5, 4]` | `r t1_w[5, 1]` | `r t1_w[5, 2]` | `r t1_w[5, 5]`
+`r t1_w[6, 3]` | `r t1_w[6, 4]` | `r t1_w[6, 1]` | `r t1_w[6, 2]` | `r t1_w[6, 5]`
+`r t1_w[7, 3]` | `r t1_w[7, 4]` | `r t1_w[7, 1]` | `r t1_w[7, 2]` | `r t1_w[7, 5]`
+`r t1_w[8, 3]` | `r t1_w[8, 4]` | `r t1_w[8, 1]` | `r t1_w[8, 2]` | `r t1_w[8, 5]`
+`r t1_w[9, 3]` | `r t1_w[9, 4]` | `r t1_w[9, 1]` | `r t1_w[9, 2]` | `r t1_w[9, 5]`
+`r t1_w[10, 3]` | `r t1_w[10, 4]` | `r t1_w[10, 1]` | `r t1_w[10, 2]` | `r t1_w[10, 5]`
+
+The above table tells us that the "9.11" attack is still the biggest attacks around the world when it comes to the death of victims in the single attack. Other countries such as Japan, Kenya, Sri Lanka, Chad, Russia, India, and Iraq also suffers huge loss from major terror attacks.
+
+I then created regional breakdown graphs of attack impact as below:
+```{r count-by-year-region, fig.width=6, fig.height=2.5}
+# Look at attacks and casualties over the years by region
+g2_w_1 <-  dt_w %>% mutate(region=region_txt) %>% dplyr::group_by(iyear, region) %>%
+  summarise(nkill = sum(nkill, na.rm=TRUE), nwound = sum(nwound, na.rm=TRUE), n_incident = n()) %>%
+  ggplot(aes(iyear, n_incident, group = region, color=region)) +
+  geom_line() + xlab("") + ylab("Occurence of Attacks") + ggtitle("Count of Attacks by Region") +
+  theme_light()
+g2_w_1
+```
+```{r nkill-by-year-region,  fig.width=6, fig.height=2.5}
+g2_w_2 <-  dt_w %>% mutate(region=region_txt) %>% 
+  dplyr::group_by(iyear, region) %>%
+  summarise(nkill = sum(nkill, na.rm=TRUE), nwound = sum(nwound, na.rm=TRUE), n_incident = n()) %>%
+  ggplot(aes(iyear, nkill, group = region, color=region)) +
+  geom_line() + xlab("") + ylab("Victims Killed") + ggtitle("Victim Deaths by Region") +
+  theme_light()
+g2_w_2
+```
+```{r nwound-by-year-region, fig.width=6, fig.height=2.5}
+g2_w_3 <-  dt_w %>% mutate(region=region_txt) %>%
+  dplyr::group_by(iyear, region) %>% summarise(nkill = sum(nkill, na.rm=TRUE), nwound = sum(nwound, na.rm=TRUE), n_incident = n()) %>%
+  ggplot(aes(iyear, nwound, group = region, color=region)) +
+  geom_line() + xlab("") + ylab("Victims Injured") + ggtitle("Victim Injured by Region") +
+  theme_light()
+g2_w_3
+```
+From these graphs we can infer that Middle East & North Africa, South Asia, and Sub-Saharan Africa are the regions most heavily infested by terror attacks in recent years.
+
+## Question 3: Are There Any Attack Patterns by Date, Types, and Target?
+I then tried to crosstabulate the attack measurements with date and time, in order to see if I can identify any patterns between attack occurence / impact and weekday / month. 
+
+```{r heatmap-month-day,fig.width=6, fig.height=2.5}
+# Explore the attack freq pattern for day of week and month of year
+dt1 <- dt %>% mutate(iweekday = factor(weekdays(dt$idate),
+                                      levels = c('Sunday','Monday','Tuesday',
+                                                 'Wednesday','Thursday','Friday','Saturday')),
+                    imonth = factor(imonth),
+                    nkill = ifelse(is.na(nkill), 0, nkill),
+                    nwound = ifelse(is.na(nwound), 0, nwound),
+                    n_killwound = nkill + nwound) %>% 
+  dplyr::group_by(imonth, iweekday) %>% summarise(n_killwound = sum(n_killwound), n_incident = n())
+
+g3 <- dt1 %>% mutate(iweekday = factor(iweekday, levels=rev(levels(iweekday)))) %>%
+  ggplot(aes(x=imonth, y=iweekday, fill=n_incident)) + 
+  geom_tile(color="white", size=0.1)+ coord_equal() + 
+  labs(x=NULL, y=NULL, title="Count of Attacks Per Month by Weekday") + 
+  theme(plot.title=element_text(hjust=0.5, size = 10)) + theme(axis.ticks=element_blank()) +
+  theme(axis.text=element_text(size=7)) + theme(legend.position="none") + 
+  scale_fill_gradient(low = "white", high = "darkviolet")
+g3
+```
+```{r kill-injury-month-day,fig.width=6, fig.height=2.5}
+g4 <- dt1 %>% mutate(iweekday = factor(iweekday, levels=rev(levels(iweekday)))) %>%
+  ggplot(aes(x=imonth, y=iweekday, fill=n_killwound)) + 
+  geom_tile(color="white", size=0.1)+ coord_equal() + 
+  labs(x=NULL, y=NULL, title="Number of Injuries or Wounds Per Month by Weekday") + 
+  theme(plot.title=element_text(hjust=0.5, size = 10)) + theme(axis.ticks=element_blank()) +
+  theme(axis.text=element_text(size=7)) + theme(legend.position="none") + 
+  scale_fill_gradient(low = "white", high = "darkviolet")
+g4
+```
+
+Apparently Mondays and Fridays are weekdays when attacks are likely to happen regardless of which month it is. Weekends seem to have more attacks than the rest of the weekdays. November, August, and February seem to see less attacks than other months. For the wounds and injuries, since the extreme impacts by the biggest attacks are too dramatic comparing to smaller attacks, I can't see much of a pattern in the heatmap.
+
+Interested to see how attacks of different types are distributed over day of the week and month of the year, I created the following graphs for a detailed look.
+```{r, message=FALSE, warning=FALSE}
+# Create a dataframe specifically for attacktypes and targettypes
+dt2 <- dt %>% mutate(iweekday = factor(weekdays(dt$idate),
+                                      levels = c('Sunday','Monday','Tuesday',
+                                                 'Wednesday','Thursday','Friday','Saturday')),
+                    imonth = factor(imonth)) %>%
+  dplyr::select(eventid, iyear, iweekday, imonth, targtype1_txt, targtype2_txt, targtype3_txt, attacktype1_txt, attacktype2_txt, attacktype3_txt) %>%
+  melt(id.vars =c('eventid','iyear','iweekday','imonth', 'attacktype1_txt', 'attacktype2_txt',
+                  'attacktype3_txt'), 
+       measure.vars = c('targtype1_txt','targtype2_txt', 'targtype3_txt'),
+       na.rm = TRUE, value.name = "targtype_txt") %>%
+  dplyr::select(-variable) %>%
+  melt(id.vars = c('eventid','iyear','iweekday','imonth','targtype_txt'),
+       measure.vars = c('attacktype1_txt', 'attacktype2_txt','attacktype3_txt'),
+       na.rm = TRUE, value.name = "attacktype_txt") %>%
+  dplyr::select(-variable) %>% mutate(targtype_txt = factor(targtype_txt),
+                                      attacktype_txt = factor(attacktype_txt),
+                                      idecades = factor(ifelse(iyear >= 2010, "Since 2010", 
+                                             ifelse(iyear >= 2000,  "2000s",
+                                                    ifelse(iyear >= 1990, "1990s",
+                                                           ifelse(iyear >= 1980, "1980s", "1970s"))))))
+```
+
+```{r count_by_type_weekday, fig.width=6, fig.height=4}
+# Create a heatmap with weekday by attack type
+g5 <- dt2 %>% dplyr::group_by(iweekday, attacktype_txt) %>% summarise(n_incident=n()) %>%
+  ggplot(aes(y=reorder(attacktype_txt, n_incident), x=factor(iweekday, levels=rev(levels(iweekday))),
+             fill=n_incident)) + 
+  geom_tile(color="white", size=0.1)+ coord_equal() + 
+  labs(x=NULL, y=NULL, title="Count of Attacks: Attack Type by Weekday") + 
+  theme(plot.title=element_text(hjust=0.5, size = 10)) + theme(axis.ticks=element_blank()) +
+  theme(axis.text=element_text(size=7)) + theme(legend.position="none") + 
+  scale_fill_gradient(low = "lavenderblush", high = "darkviolet") +
+  theme(axis.text.x = element_text(angle = 90))
+g5
+```
+
+```{r count by type and era, fig.width=6, fig.height=4}
+# Create a heatmap of attack type by era
+g6 <- dt2 %>% dplyr::group_by(idecades, attacktype_txt) %>% summarise(n_incident=n()) %>%
+  ggplot(aes(y=reorder(attacktype_txt, n_incident), x=idecades, fill=n_incident)) + 
+  geom_tile(color="white", size=0.1)+ coord_equal() + 
+  labs(x=NULL, y=NULL, title="Count of Attacks: Attack Type by Era") + 
+  theme(plot.title=element_text(hjust=0.5, size = 10)) + theme(axis.ticks=element_blank()) +
+  theme(axis.text=element_text(size=7)) + theme(legend.position="none") + 
+  scale_fill_gradient(low = "lavenderblush", high = "darkviolet")
+g6
+```
+From these graphs I can infer that the most common attack types in the U.S. are Bombing/Explosion, Facility/Infrastructure Attack, and Armed Assault. Monday and Friday, again, seems to be the heavily condensed time slot for the attacks, especially for Bombing/Explosion attacks. In terms of the decades, Bombing/Explosion was a dominating attack type back in the 1970s and 1980s.
+
+I then created several graphs by attack target type and weekdays to explore the relations between target type and time.
+
+```{r count by target and weekday, fig.width=8, fig.height=5}
+# Create a heatmap with weekday by target type
+g7 <- dt2 %>% dplyr::group_by(iweekday, targtype_txt) %>% summarise(n_incident=n()) %>%
+  ggplot(aes(x=reorder(targtype_txt, -n_incident), y=factor(iweekday, levels=rev(levels(iweekday))),
+             fill=n_incident)) + 
+  geom_tile(color="white", size=0.1)+ coord_equal() + 
+  labs(x=NULL, y=NULL, title="Count of Attacks: Target Type by Weekday") + 
+  theme(plot.title=element_text(hjust=0.5, size = 10)) + theme(axis.ticks=element_blank()) +
+  theme(axis.text=element_text(size=7)) + theme(legend.position="none") + 
+  scale_fill_gradient(low = "lavenderblush", high = "darkviolet") +
+  theme(axis.text.x = element_text(angle = 90))
+g7
+```
+```{r count by target and era, fig.width=8, fig.height=5}
+# Create a heatmap of target type by era
+g8 <- dt2 %>% dplyr::group_by(idecades, targtype_txt) %>% summarise(n_incident=n()) %>%
+  ggplot(aes(x=reorder(targtype_txt, -n_incident), y=idecades, fill=n_incident)) + 
+  geom_tile(color="white", size=0.1)+ coord_equal() + 
+  labs(x=NULL, y=NULL, title="Count of Attacks: Target Type by Era") + 
+  theme(plot.title=element_text(hjust=0.5, size = 10)) + theme(axis.ticks=element_blank()) +
+  theme(axis.text=element_text(size=7)) + theme(legend.position="none") + 
+  scale_fill_gradient(low = "lavenderblush", high = "darkviolet") +
+  theme(axis.text.x = element_text(angle = 90))
+g8
+```
+From the above graphs, I can infer that the most common targets for terror attacks are Business, Government(General), and Private Citizens & Property. It is astonishing to see that "Abortion Related" targets are the top fourth common targets for the attacks. The above graphs also indicate that targets types are more spreadout than the attack type for terror attacks in the U.S..
+
+When exploring the attack count by decades, it's apparent that attacks on Business are less frequent since 2000s, while the attacks on Abortion Related targets are relatively more frequent in the 1980s and 1990s. 
+
+I did not observe too much of a pattern over weekdays or months, so I changed focus and created a heatmap by attack types and target types, as below:
+
+```{r count-by-targettype-attacktype, fig.width=8, fig.height=4}
+# Create a heatmap of targettype by attack type
+g9 <- dt2 %>% dplyr::group_by(attacktype_txt, targtype_txt) %>% summarise(n_incident=n()) %>%
+  ggplot(aes(x=reorder(targtype_txt, -n_incident),
+             y=reorder(attacktype_txt, -n_incident), fill=n_incident)) + 
+  geom_tile(color="white", size=0.1)+ coord_equal() + 
+  labs(x=NULL, y=NULL, title="Count of Attacks: Target Type by Attack Type") + 
+  theme(plot.title=element_text(hjust=0.5, size = 10)) + theme(axis.ticks=element_blank()) +
+  theme(axis.text=element_text(size=7)) + theme(legend.position="none") + 
+  scale_fill_gradient(low = "lavenderblush", high = "darkviolet") +
+  theme(axis.text.x = element_text(angle = 90))
+g9
+```
+The chart above does not bring in much additional knowledge. Unsurprisingly, the most frequent attack types (Bombing/Explosion, Facility/Infrastructure Attack) corresponds with the most frequent target types (Business, Abortion Related, Government(General)).
+
+In my next post, I will take a further step and examine the characteristics of attacks in the U.S. in greater detail to:
+
+* Focus more on recent attack features
+* Examine the geospacial locations of the attacks
